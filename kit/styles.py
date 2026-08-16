@@ -10,9 +10,13 @@ style ≈ -36% reasoning tokens / ≈ -33% task time, sustained, 15/15 correct
 (n=3 styled vs an n=8 baseline band, bare stack, attribution clean).
 VALIDITY: DIRECTIONAL — see README.md before quoting.
 
-Two prior-art skills, fused into one steering layer (see docs/CREDITS.md):
-  - caveman  (rolottr/caveman-skill): terse telegraphic fragments.
-  - ponytail (ponytail skill): lazy-senior-dev judgment ladder.
+Two prior-art skills, fused into one steering layer (see docs/CREDITS.md
+and THIRD-PARTY-NOTICES.md for the full notices):
+  - caveman  (rolottr/caveman-skill, MIT, (c) 2026 rolottr): terse
+    telegraphic fragments. Prompt text adapted from the skill.
+  - ponytail (the ponytail skill; marmelab's published copy carries an
+    MIT license notice in its SKILL.md frontmatter): lazy-senior-dev
+    judgment ladder. Prompt text adapted from the skill.
 
 Three laws baked into this module's design:
 
