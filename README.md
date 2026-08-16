@@ -78,6 +78,22 @@ believing your own numbers.
 > invalid as a style number). Never cite it as style steering. The -36%/-33%
 > above is the clean attribution.
 
+> **Update (2026-08-16) — the regime condition, from our own re-baseline.**
+> The -36%/-33% above is real but **regime-conditional, not universal**: it
+> was measured server-lane with the model's default (high) thinking effort.
+> Re-measured harness-lane at low effort (n=15/arm interleaved, fixed
+> fingerprinted harness), the same fused style measured **+65% wall** — a
+> full inversion — because at low effort there is nothing to cut and the
+> style text costs more than it saves. The rule: style steering is
+> **effective where the model would overthink (high-effort reasoning), and
+> counterproductive at low effort.** So **route per session, not per turn** —
+> apply the style only to high-effort sessions, which also keeps the
+> byte-stable prefix law intact (toggling style per turn would break the
+> prompt cache mid-session). The battery method in `kit/instruments/`
+> (`tpt_battery.py` + `tpt_style.py`) is how to verify this per-regime on
+> your own rig before adopting. Source: re-baseline experiment log
+> (REBASELINE-RESULTS.md + VALIDITY-MAP.md, 2026-08-15/16 night).
+
 ## How do I stop my agent re-reading files?
 
 Three layers, biggest first. All in `kit/munch.py` and `kit/diet.py`.

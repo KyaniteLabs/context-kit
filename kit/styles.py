@@ -34,6 +34,16 @@ Three laws baked into this module's design:
 
 3. EXEMPT LANES. Creative work (tokens ARE the product) and instant/no-think
    turns get no style — `style_layer()` encodes this.
+
+Regime condition (re-baseline 2026-08-16): this layer is effective where the
+model would overthink (high-effort reasoning) and counterproductive at low
+effort, where there is nothing to cut — harness-lane n=15/arm at effort=low
+measured +65% wall for the fused style vs off, while the server-lane /
+default-effort regime reproduces the -36% tok / -33% time win. Route per
+session, not per turn: apply the style only to high-effort sessions, so the
+byte-stable prefix (law 2) holds for the whole session. Verify per-regime on
+your own rig with the battery method in kit/instruments/ (tpt_battery.py +
+tpt_style.py).
 """
 
 import re
