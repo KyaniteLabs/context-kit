@@ -8,10 +8,19 @@ keeps its own license and credit.
 
 ## Adapted into this repository
 
+### JuliusBrussee/caveman (skill) — MIT
+- Source: https://github.com/JuliusBrussee/caveman
+- Derived: origin of the "caveman" thinking-style used in `kit/styles.py`
+  (terse telegraphic reasoning fragments). Prompt text is our adaptation;
+  no upstream engine/runtime code is included. The skill is MIT; directories
+  listed in that repo's LICENSING.md as Engine-linked are BSL-1.1 and are
+  unused here.
+- Copyright (c) 2026 Julius Brussee
+
 ### rolottr/caveman-skill — MIT
 - Source: https://github.com/rolottr/caveman-skill
-- Derived: the "caveman" style prompt text in `kit/styles.py` is adapted
-  from this skill (terse telegraphic reasoning fragments).
+- Derived: a measured terse variant of the same style family; cited as
+  secondary, not as the origin.
 - Copyright (c) 2026 rolottr
 - Permission is hereby granted, free of charge, to any person obtaining a
   copy of this software and associated documentation files (the
@@ -30,14 +39,14 @@ keeps its own license and credit.
   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
-### ponytail skill (marmelab's published copy) — MIT
-- Source: https://github.com/marmelab/AIHarness (`skills/ponytail/SKILL.md`;
-  also mirrored in marmelab/atomic-crm). The skill file carries
-  `license: MIT` in its YAML frontmatter.
+### DietrichGebert/ponytail — MIT
+- Source: https://github.com/DietrichGebert/ponytail
 - Derived: the "ponytail" style prompt text in `kit/styles.py` (the
   lazy-senior-dev judgment ladder) is adapted from this skill.
-- Retained per the file's own MIT notice (frontmatter). Full MIT text as
-  above, applying to the skill text.
+- Copyright (c) 2026 DietrichGebert
+- Community republishes (e.g. marmelab/AIHarness `skills/ponytail/SKILL.md`)
+  are copies, not the origin. Full MIT text as above, applying to the
+  skill text.
 
 ## Patterns reimplemented clean (idea only — no upstream code included)
 
@@ -64,12 +73,13 @@ keeps its own license and credit.
   spill/disclose half of `kit/diet.py`). Pattern credit only; no upstream
   code included.
 
-### marks-pi-harness (Early AI Dopters) — MIT
-- Source: https://github.com/earlyaidopters/marks-pi-harness
-- Copyright (c) 2026 Early AI Dopters
-- Derived: local-model infrastructure philosophy (tools that force the
-  model to look at its work; gates it cannot talk past). Patterns 7-9 in
-  `docs/PATTERNS.md`. No upstream code included.
+### Pi (earendil-works/pi) — MIT
+- Source: https://pi.dev/ — https://github.com/earendil-works/pi
+- Copyright (c) 2025 Mario Zechner
+- Derived: the coding-agent harness this kit is written to sit under.
+  Local-model infrastructure patterns (verify-after-edit, gates) follow
+  community Pi setups; no upstream Pi code is included. Patterns 7-9 in
+  `docs/PATTERNS.md`.
 
 ## Measured against / used as-shipped (not redistributed)
 
@@ -79,7 +89,7 @@ keeps its own license and credit.
 - Relationship: the runtime every instrument in `kit/instruments/` measures
   against. Not redistributed here.
 
-### Unsloth — Apache-2.0
+### Unsloth — Apache-2.0 (core package)
 - Source: https://github.com/unslothai/unsloth
 - Relationship: the UD dynamic quants (Q4_K_XL et al.) used as-shipped by
   the measurement campaigns documented in this repo. Not redistributed

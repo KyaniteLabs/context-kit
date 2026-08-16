@@ -6,7 +6,8 @@ yours can be anything). Each pattern carries the measurement that justifies it
 — labels as defined in the README (CLEAN / DIRECTIONAL / ARITHMETIC).
 
 Architecture credit: the append-only-log/derived-context spine follows the
-DeepSeek Harness architecture (MIT) — see docs/CREDITS.md.
+DeepSeek Harness architecture (MIT, https://github.com/deepseek-ai/deepseek-harness)
+— see docs/CREDITS.md.
 
 ---
 
@@ -126,9 +127,9 @@ parse verdict (`ast.parse` for Python: "file still parses OK" or "SYNTAX
 BROKEN: ... — FIX BEFORE ANSWERING").
 
 **Why.** A local model that must *look at its work* stops declaring success
-over broken edits. This is the pi-harness philosophy (docs/CREDITS.md): a
-frontier model tolerates a sloppy setup; a local model does not — fix it with
-infrastructure, not vibes.
+over broken edits. This is the Pi (pi.dev / earendil-works) local-model
+infrastructure philosophy (docs/CREDITS.md): a frontier model tolerates a
+sloppy setup; a local model does not — fix it with infrastructure, not vibes.
 
 ## 8. Repair-loop breaker
 

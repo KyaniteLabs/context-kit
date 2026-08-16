@@ -12,11 +12,11 @@ VALIDITY: DIRECTIONAL — see README.md before quoting.
 
 Two prior-art skills, fused into one steering layer (see docs/CREDITS.md
 and THIRD-PARTY-NOTICES.md for the full notices):
-  - caveman  (rolottr/caveman-skill, MIT, (c) 2026 rolottr): terse
-    telegraphic fragments. Prompt text adapted from the skill.
-  - ponytail (the ponytail skill; marmelab's published copy carries an
-    MIT license notice in its SKILL.md frontmatter): lazy-senior-dev
-    judgment ladder. Prompt text adapted from the skill.
+  - caveman  (JuliusBrussee/caveman skill, MIT, (c) 2026 Julius Brussee;
+    origin of the style. rolottr/caveman-skill is a measured variant):
+    terse telegraphic fragments.
+  - ponytail (DietrichGebert/ponytail, MIT, (c) 2026 DietrichGebert;
+    origin of the skill): lazy-senior-dev judgment ladder.
 
 Three laws baked into this module's design:
 
