@@ -153,6 +153,29 @@ inside thermal noise. Meanwhile, steering reasoning tokens cut total task
 hardware: **tokens-not-needed beats tokens-per-second.** Track
 seconds-per-correct-task and watch your prefill bytes.
 
+## Community results — post your numbers
+
+The kit is hardware-agnostic — anything running a local llama.cpp-class
+server works. Our row (the rig every number in this repo was measured on) is
+below; the other classes are open. **PR or issue your row —
+`kit/instruments/tpt_battery.py` makes it one command** against a running
+server (5 auto-graded tasks, seconds/tokens per correct task).
+
+| Hardware | Backend/build | Config | Cold tok/s | Warm tok/s | Real-traffic band | Time-per-task | Source |
+|---|---|---|---|---|---|---|---|
+| AMD Ryzen AI Max+ 395 / Radeon 8060S (gfx1151, 64GB unified) | llama.cpp b10435-era (9d57ce4), ROCm/HIP | Qwen3.8-27B UD-Q4_K_XL @ 96k, `draft-mtp,ngram-mod` n12 / n-min 24, f16 KV | 59.7 (c30) | 148–163 (repetition-assisted — ngram replays repeat/pattern traffic) | prose 11–24, code 30–40 | 7.9–14.3 s/task, median 11.3 (5-task battery, n=3, thermal band) | [qwen38-27b-strix-halo](https://github.com/KyaniteLabs/qwen38-27b-strix-halo) |
+| Apple M4-class (unified memory) | — | — | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | — |
+| Snapdragon X Elite-class | — | — | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | — |
+| Intel Arc / Lunar Lake-class | — | — | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | — |
+
+Same label rules we hold ourselves to (see
+[How do I measure my agent honestly?](#how-do-i-measure-my-agent-honestly)):
+warm c30 under ngram is a repetition artifact — the label is part of the
+number; n>=3 per arm in one thermal window; time-per-task beats decode tok/s
+as the headline metric. On this stack, style steering (`kit/styles.py`) moved
+task time −33% with zero hardware change — expect your interesting deltas on
+the same axis.
+
 ---
 
 ## License & credits
