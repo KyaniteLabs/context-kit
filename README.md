@@ -149,7 +149,28 @@ Method rules, each learned by publishing a number we later had to walk back:
   artifacts, not model failures. Fence-strip before grading; eyeball the FAIL
   content before you publish a pass count.
 - **Label your n on every number you keep.** One unlabeled n=1 becomes a
-  headline within a week.
+  headline within a week. Corollary: a single-sample instrument is
+  **pilot-class** — it can choose the next experiment, never an adoption or
+  "crossover" decision (we caught our own one-generation config comparison
+  about to do exactly that).
+- **Audit the server's defaults before you trust your control arm.** We ran
+  a thinking-budget experiment whose "uncapped" cell silently inherited the
+  server's `--reasoning-budget 2048` default — the control arm was capped
+  all along. The tell: six problems produced *byte-identical* reasoning
+  lengths across the "uncapped" and 2048 cells (same cap, same greedy
+  generation). Rule: read the live server cmdline for any default on your
+  experiment's axis (budget, effort kwargs, sampling), and have control arms
+  send explicit overrides instead of omitting fields.
+- **Persist the full raw trace per row** (reasoning + final content), not
+  just counts and grades. A completed 69-row run stored `think_ch`-style
+  counts only; when we later needed failure-mode analysis, the evidence was
+  gone. Counts are for dashboards; rows are for autopsies.
+- **Measure at the source.** A client-side token estimate told us a
+  tools-as-code mode cut ~10%; the server-reported prompt-token count said
+  **-41.5%** — the estimate was structurally blind to the ~2100-token tool
+  payload riding every request. Wire truth lives in the server's own usage
+  numbers, not in what your client thinks it sent (n=180-run A/B, paired
+  tasks).
 
 ## Why is decode tok/s the wrong metric?
 
@@ -179,7 +200,7 @@ server (5 auto-graded tasks, seconds/tokens per correct task).
 
 | Hardware | Backend/build | Config | Cold tok/s | Warm tok/s | Real-traffic band | Time-per-task | Source |
 |---|---|---|---|---|---|---|---|
-| AMD Ryzen AI Max+ 395 / Radeon 8060S (gfx1151, 64GB unified) | llama.cpp b10435-era (9d57ce4), ROCm/HIP | Qwen3.8-27B UD-Q4_K_XL @ 96k, `draft-mtp,ngram-mod` n12 / n-min 24, f16 KV | 59.7 (c30) | 148–163 (repetition-assisted — ngram replays repeat/pattern traffic) | prose 11–24, code 30–40 | 7.9–14.3 s/task, median 11.3 (5-task battery, n=3, thermal band) | [qwen38-27b-strix-halo](https://github.com/KyaniteLabs/qwen38-27b-strix-halo) |
+| AMD Ryzen AI Max+ 395 / Radeon 8060S (gfx1151, 96GB unified, GTT 64GB) | llama.cpp b10435-era (9d57ce4), ROCm/HIP | Qwen3.8-27B UD-Q4_K_XL @ **262,144 ctx** (native ceiling), **K+V q8_0** KV, `draft-mtp,ngram-mod` n12 / n-min 24 | 59.7 (c30) | 148–163 (repetition-assisted — ngram replays repeat/pattern traffic) | prose 11–24, code 30–40 | 7.9–14.3 s/task, median 11.3 (5-task battery, n=3, thermal band) | [qwen38-27b-strix-halo](https://github.com/KyaniteLabs/qwen38-27b-strix-halo) |
 | Apple M4-class (unified memory) | — | — | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | — |
 | Snapdragon X Elite-class | — | — | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | — |
 | Intel Arc / Lunar Lake-class | — | — | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | [UNMEASURED — CONTRIBUTE] | — |
