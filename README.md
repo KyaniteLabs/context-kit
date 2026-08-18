@@ -33,6 +33,22 @@ Zero dependencies. Python stdlib only. Adapt, don't install.
 
 Steer the reasoning **style** with a system prompt. Never cap the budget.
 
+> **Update (2026-08-18) — the cap verdict, from a paired experiment.** We ran
+> the same 50 difficulty-enriched Omni-MATH problems under no cap, a 1024-token
+> cap, and a 512-token cap (same problems per cell, cell order rotated, exact
+> McNemar on paired flips). Result: **all three statistically indistinguishable**
+> (uncapped-vs-512, p=0.73) — but the uncapped arm hit the output ceiling
+> mid-think on 26/50 problems (median wall 367s vs 49s at the 512 cap) while
+> the capped arms almost never died (1/50). The hard band (difficulty >= 5)
+> scored 16% at *every* budget: capability-bound, not token-bound. Refined law:
+> **style steering stays the default for cutting verbosity; a tight server-side
+> budget is the backstop that also keeps the arm alive** — the uncapped model
+> doesn't just waste time, it thinks itself to death against max_tokens. One
+> caveat carried from design review: capped cells measure *forced* early
+> termination (conclude-now injection), so if anything the true cap cost is
+> lower than measured. Our harness default is now a 1024 budget; 512 when
+> turn speed matters.
+
 Reasoning models burn most of their wall time thinking out loud in patterns the
 task doesn't need: restating the problem, narrating steps, re-deriving known
 facts. Two style prompts fix that without touching budgets or quantization:
