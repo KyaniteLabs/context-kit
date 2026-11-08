@@ -1,0 +1,23 @@
+name: Tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  stdlib:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.12', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run offline regression suite without site-packages
+        run: python -S -m unittest discover -s tests -v
+      - name: Discover instruments without a server
+        run: |
+          python -S kit/instruments/tpt_battery.py --help
+          python -S kit/instruments/tpt_style.py --help

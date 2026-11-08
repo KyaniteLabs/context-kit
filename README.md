@@ -15,7 +15,28 @@ a tool-using agent loop.
   harness window). The *ordering* is claimed; the *magnitude* is soft.
 - **ARITHMETIC** — deterministic math on measured inputs (bytes saved, tok/s to TTFT).
 
-Zero dependencies. Python stdlib only. Adapt, don't install.
+Zero dependencies. Python stdlib only. Adapt, don't install. Python 3.10+.
+
+### Offline checks
+
+```sh
+python3 -S -m unittest discover -s tests -v
+python3 kit/instruments/tpt_battery.py --help
+python3 kit/instruments/tpt_style.py --help
+```
+
+Help and imports do not contact a server; running an instrument normally does.
+`read_symbol(path, name, want_body=False)` includes a normalized declaration
+(parameters, defaults, annotations; class bases), docstring and line span.
+`elide_to_budget` and `project` bound the sum of returned **content** character
+lengths, not serialized event metadata or tokens; they can drop all events for
+small budgets. Negative budgets raise `ValueError`.
+`cached_read` skips caching when pre/post-read file metadata differs. It returns
+the first read unchanged; the next call re-executes. This is metadata validation,
+not an atomic filesystem snapshot or protection against adversarial metadata
+restoration. Direct `ResultCache.store` callers must provide `before=os.stat(path)`
+from before their read to get the same mid-read-change check.
+
 
 | Path | What it is |
 |---|---|

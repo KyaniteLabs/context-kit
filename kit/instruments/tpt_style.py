@@ -9,6 +9,7 @@ Usage: python kit/instruments/tpt_style.py PORT TAG MARKER
 Honesty: n>=3 per arm in ONE thermal window; interleave arms; keep the
 baseline band wide (ours spanned 151-313 tok) before trusting a delta.
 """
+import argparse
 import json
 import os
 import sys
@@ -21,13 +22,7 @@ from kit.styles import STYLES  # noqa: E402
 
 MARKERS = {"-": None, **{k: k for k in STYLES}}
 
-PORT = sys.argv[1] if len(sys.argv) > 1 else "8080"
-TAG = sys.argv[2] if len(sys.argv) > 2 else "run"
-MARK = sys.argv[3] if len(sys.argv) > 3 else "-"
-if MARK not in MARKERS:
-    sys.exit(f"MARKER must be one of: {'/'.join(MARKERS)}")
-sysmsg = STYLES[MARKERS[MARK]] if MARKERS[MARK] else None
-URL = f"http://127.0.0.1:{PORT}/v1/chat/completions"
+URL = "http://127.0.0.1:8080/v1/chat/completions"
 
 TOOLS = [{"type": "function", "function": {
     "name": "read_file", "description": "Read a file from disk",
@@ -105,21 +100,34 @@ TASKS = [
      800, None),
 ]
 
-total_t = total_tok = passed = 0
-for tag, grader, q, mt, tools in TASKS:
-    msgs = ([{"role": "system", "content": sysmsg}] if sysmsg else []) + \
-           [{"role": "user", "content": q}]
-    dt, c, tc, u = run(msgs, mt, tools)
-    ok = grader(c, tc, u)
-    comp = u.get("completion_tokens", 0)
-    if ok:
-        passed += 1
-        total_t += dt
-        total_tok += comp
-    print(f"{TAG}/{MARK} {tag}: {'PASS' if ok else 'FAIL'}  {dt:.1f}s  tok={comp}")
-    if not ok:
-        print(f"  FAIL-CONTENT: {c[:160]!r}")
+def main(argv=None):
+    global URL
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("port", metavar="PORT", nargs="?", type=int, default=8080)
+    parser.add_argument("tag", metavar="TAG", nargs="?", default="run")
+    parser.add_argument("marker", metavar="MARKER", nargs="?", choices=MARKERS, default="-")
+    args = parser.parse_args(argv)
+    URL = f"http://127.0.0.1:{args.port}/v1/chat/completions"
+    sysmsg = STYLES[MARKERS[args.marker]] if MARKERS[args.marker] else None
+    total_t = total_tok = passed = 0
+    for tag, grader, q, mt, tools in TASKS:
+        msgs = ([{"role": "system", "content": sysmsg}] if sysmsg else []) + \
+               [{"role": "user", "content": q}]
+        dt, c, tc, u = run(msgs, mt, tools)
+        ok = grader(c, tc, u)
+        comp = u.get("completion_tokens", 0)
+        if ok:
+            passed += 1
+            total_t += dt
+            total_tok += comp
+        print(f"{args.tag}/{args.marker} {tag}: {'PASS' if ok else 'FAIL'}  {dt:.1f}s  tok={comp}")
+        if not ok:
+            print(f"  FAIL-CONTENT: {c[:160]!r}")
 
-print(f"{TAG} SUMMARY[{MARK}]: {passed}/5 | "
-      f"{total_t / max(passed, 1):.1f}s/task | "
-      f"{total_tok / max(passed, 1):.0f} tok/task | wall {total_t:.1f}s")
+    print(f"{args.tag} SUMMARY[{args.marker}]: {passed}/5 | "
+          f"{total_t / max(passed, 1):.1f}s/task | "
+          f"{total_tok / max(passed, 1):.0f} tok/task | wall {total_t:.1f}s")
+
+
+if __name__ == "__main__":
+    main()
