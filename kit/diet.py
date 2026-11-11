@@ -20,11 +20,92 @@ is {"kind": "tool_result", "content": str} plus your own fields, which pass
 through untouched.
 """
 
+import enum
 import hashlib
 import os
+import re
+import tempfile
 import threading
 
 DEFAULT_SPILL_DIR = os.path.expanduser("~/.cache/context-kit/spill")
+
+
+# ------------------------------------------ projection stage of one event
+class Stage(enum.Enum):
+    """Where one tool_result body sits in the VIEW. The log never changes;
+    only the projected copy moves, and it moves one way:
+
+        FULL ──elide────> ELIDED      (budget pass; 200-char preview kept)
+        FULL ──dedup────> DEDUPED     (identical to an earlier FULL body)
+        FULL ──compact──> COMPACTED   (long-session compaction)
+
+    Every stub stage is terminal: a stub is never re-stubbed (that would
+    destroy the preview / the dedup pointer). The stage is not stored as a
+    field — the model-visible bytes stay exactly as they always were — it
+    is derived from the event by `stage_of`, the single reader.
+    """
+    FULL = "full"
+    ELIDED = "elided"
+    DEDUPED = "deduped"
+    COMPACTED = "compacted"
+
+
+class IllegalTransition(ValueError):
+    """A projection move the Stage diagram does not allow."""
+
+
+# The stub texts — byte-identical to every release so far.
+_ELIDED_TEXT = "(elided)"
+_DEDUP_PREFIX = "(unchanged output — identical to the earlier result at event "
+_DEDUP_RE = re.compile(re.escape(_DEDUP_PREFIX) + r"(\d+)\)\Z")
+_COMPACT_RE = re.compile(r"\(old result, \d+B — elided by compaction\)\Z")
+
+
+def stage_of(event):
+    """Derive the projection Stage of an event (non-tool_result -> FULL).
+    Tolerant of legacy projections: an "(elided)" body without the
+    `_elided` preview key still reads as ELIDED."""
+    if event.get("kind") != "tool_result":
+        return Stage.FULL
+    if "_elided" in event or event.get("content") == _ELIDED_TEXT:
+        return Stage.ELIDED
+    body = event.get("content", "")
+    if _DEDUP_RE.match(body):
+        return Stage.DEDUPED
+    if _COMPACT_RE.match(body):
+        return Stage.COMPACTED
+    return Stage.FULL
+
+
+def dedup_target(event):
+    """Index (0-based, in the same projected list) of the FULL body a
+    DEDUPED stub points at; None for any other stage."""
+    if stage_of(event) is not Stage.DEDUPED:
+        return None
+    return int(_DEDUP_RE.match(event["content"]).group(1)) - 1
+
+
+def transition(event, to, *, target=None):
+    """The one way a projected event changes stage. Returns a NEW dict
+    (copy-on-write); raises IllegalTransition for any move not in the
+    Stage diagram. `target` is the 0-based index of the earlier identical
+    result, required for DEDUPED."""
+    if event.get("kind") != "tool_result":
+        raise IllegalTransition("only tool_result events have a stage")
+    frm = stage_of(event)
+    if frm is not Stage.FULL or to is Stage.FULL:
+        raise IllegalTransition(f"{frm.name} -> {to.name} is not allowed")
+    body = event.get("content", "")
+    if to is Stage.ELIDED:
+        return dict(event, content=_ELIDED_TEXT, _elided=body[:200])
+    if to is Stage.DEDUPED:
+        if target is None:
+            raise IllegalTransition("DEDUPED needs the target index")
+        return dict(event, content=f"{_DEDUP_PREFIX}{target + 1})")
+    if to is Stage.COMPACTED:
+        return dict(event, content=(
+            f"(old result, {len(body)}B — elided by compaction)"))
+    raise IllegalTransition(f"unknown stage {to!r}")
 
 
 # ------------------------------------------------- pass 1: budget elision
@@ -37,10 +118,11 @@ def elide_to_budget(events, budget_chars=300000):
     total = sum(len(e.get("content", "")) for e in keep)
     i = 0
     while total > budget_chars and i < len(keep):
-        if keep[i].get("kind") == "tool_result":
-            body = keep[i].get("content", "")
-            total -= len(body)
-            keep[i] = dict(keep[i], content="(elided)", _elided=body[:200])
+        if stage_of(keep[i]) is Stage.FULL and \
+                keep[i].get("kind") == "tool_result":
+            before = len(keep[i].get("content", ""))
+            keep[i] = transition(keep[i], Stage.ELIDED)
+            total += len(keep[i]["content"]) - before   # the stub counts too
         i += 1
     while total > budget_chars and len(keep) > 8:
         total -= len(keep[0].get("content", ""))
@@ -58,16 +140,14 @@ def dedup_identical(events, min_body=200):
     keep = list(events)
     seen = {}
     for idx, e in enumerate(keep):
-        if e.get("kind") != "tool_result":
+        if e.get("kind") != "tool_result" or stage_of(e) is not Stage.FULL:
             continue
         body = e.get("content", "")
         if len(body) < min_body:
             continue
         h = hash(body)
         if h in seen:
-            keep[idx] = dict(e, content=(
-                f"(unchanged output — identical to the earlier result at "
-                f"event {seen[h] + 1})"))
+            keep[idx] = transition(e, Stage.DEDUPED, target=seen[h])
         else:
             seen[h] = idx
     return keep
@@ -78,18 +158,21 @@ def compact_old(events, keep_recent=40, long_session=300, min_body=400):
     old tool bodies (everything except the newest `keep_recent`) stub down
     regardless of char budget. Late-turn time-to-first-token is where
     prefill pain hurts most; the recent window the model is actively working
-    in stays full-fidelity."""
+    in stays full-fidelity — including any old body that a DEDUPED stub in
+    the recent window points at (compacting it would leave the model with
+    no copy of output it is told it already has)."""
     if len(events) <= long_session:
         return list(events)
     keep = list(events)
-    for idx in range(len(keep) - keep_recent):
+    cut = len(keep) - keep_recent
+    pinned = {dedup_target(e) for e in keep[max(cut, 0):]} - {None}
+    for idx in range(cut):
         e = keep[idx]
-        if e.get("kind") != "tool_result":
+        if e.get("kind") != "tool_result" or idx in pinned \
+                or stage_of(e) is not Stage.FULL:
             continue
-        body = e.get("content", "")
-        if len(body) > min_body:
-            keep[idx] = dict(e, content=(
-                f"(old result, {len(body)}B — elided by compaction)"))
+        if len(e.get("content", "")) > min_body:
+            keep[idx] = transition(e, Stage.COMPACTED)
     return keep
 
 
@@ -142,9 +225,28 @@ def disclose(text, limit=8000, spill_dir=None, label="output", stats=None):
     h = hashlib.sha1(text.encode(errors="replace")).hexdigest()[:12]
     sp = os.path.join(d, f"{h}.txt")
     if not os.path.exists(sp):
-        open(sp, "w", errors="replace").write(text)
+        _write_spill(sp, text)
     if stats is not None:
         stats.note_spill()
     head, tail = text[:3000], text[-1000:]
     return (f"{head}\n\n... [{len(text)}B total {label}; FULL OUTPUT SPILLED "
             f"TO {sp} — read it back in slices if needed] ...\n\n{tail}")
+
+
+def _write_spill(sp, text):
+    """Spill files have two on-disk states, ABSENT and COMPLETE; existence
+    at the final path MEANS complete (disclose trusts it forever). So write
+    to a temp file in the same dir and rename atomically — a crash or a
+    concurrent reader can never observe a PARTIAL file at `sp`. Same bytes
+    as the old direct write (same text mode, encoding and errors policy)."""
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(sp), suffix=".part")
+    try:
+        with os.fdopen(fd, "w", errors="replace") as f:
+            f.write(text)
+        os.replace(tmp, sp)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise

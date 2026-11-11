@@ -26,6 +26,7 @@ Zero dependencies. Python stdlib only. Adapt, don't install.
 | `kit/instruments/tpt_style.py` | A/B harness for the style prompts |
 | `docs/PATTERNS.md` | Harness integration patterns (effect ledger, recovery, prefix law) |
 | `docs/CREDITS.md` | Prior art and peer review |
+| `tests/` | Stdlib `unittest` suite: `python3 -m unittest discover -s tests -t .` |
 
 ---
 

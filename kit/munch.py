@@ -28,9 +28,10 @@ Zero dependencies. Stdlib only.
 """
 
 import ast
+import enum
 import os
-import time
 import threading
+import time
 
 
 # ------------------------------------------------------------- munch reads
@@ -69,6 +70,34 @@ def read_symbol(path, name, want_body=False):
 
 
 # ------------------------------------------------------ mtime read cache
+class Validation(enum.Enum):
+    """How a cache entry proves it is still fresh. Fixed at store time and
+    recorded ON the entry — never re-guessed from the caller's arguments."""
+    FILE = "file"   # re-stat the stored path; (mtime_ns, size) must match
+    TTL = "ttl"     # no file to stat; valid until `ttl_s` after store
+
+
+class Outcome(enum.Enum):
+    """Result of one validated lookup. Entry lifecycle per key:
+
+        ABSENT ──store──> VALID ──lookup ok──> VALID (LRU touch)
+        VALID ──store──> VALID (overwritten, re-stamped)
+        VALID ──lookup: EXPIRED | FILE_GONE | FILE_CHANGED | MODE_MISMATCH
+              ──> ABSENT (invalidated)
+        VALID ──LRU over cap──> ABSENT (evicted)
+
+    MODE_MISMATCH: the caller asks for a different validation than the
+    entry was stored with (path given for a TTL entry, no/other path for a
+    FILE entry). Neither check can vouch for the entry, so it is a miss.
+    """
+    HIT = "hit"
+    ABSENT = "absent"
+    EXPIRED = "expired"
+    FILE_GONE = "file_gone"
+    FILE_CHANGED = "file_changed"
+    MODE_MISMATCH = "mode_mismatch"
+
+
 class ResultCache:
     """Read-only tool result cache, validated by (mtime_ns, size).
 
@@ -77,46 +106,68 @@ class ResultCache:
     keys registered via `ttl` (no file to stat — graphs, indexes, searches)
     expire by age instead. LRU-evicts past `cap`.
 
-    Set `stat_hook` to a (key, hit, age) sink for cache telemetry — it must
-    never raise into a tool call (wrapped here, but keep sinks dull).
+    Set `stat_hook` to a (key, hit) sink for cache telemetry (hit is a
+    bool) — it must never raise into a tool call (wrapped here, but keep
+    sinks dull).
     """
 
     def __init__(self, cap=50, ttl_s=300):
         self.cap = cap
         self.ttl_s = ttl_s
-        self._ent = {}          # key -> {result, mtime_ns, size, born, at}
+        # key -> {result, mode, path, mtime_ns, size, born, at}
+        self._ent = {}
         self._lock = threading.Lock()
         self.stat_hook = None
+
+    def _check(self, ent, path):
+        """Classify a present entry. Pure: no state change."""
+        mode = Validation.TTL if path is None else Validation.FILE
+        if ent["mode"] is not mode or ent["path"] != path:
+            return Outcome.MODE_MISMATCH
+        if mode is Validation.TTL:
+            if time.time() - ent["born"] > self.ttl_s:
+                return Outcome.EXPIRED
+            return Outcome.HIT
+        try:
+            st = os.stat(path)
+        except OSError:
+            return Outcome.FILE_GONE
+        if (st.st_mtime_ns, st.st_size) != (ent["mtime_ns"], ent["size"]):
+            return Outcome.FILE_CHANGED
+        return Outcome.HIT
+
+    def _invalidate(self, key):
+        """VALID -> ABSENT. The one place an entry leaves the cache
+        (lock held by the caller)."""
+        self._ent.pop(key, None)
+
+    def check(self, key, path=None):
+        """Validated lookup returning (Outcome, result-or-None)."""
+        with self._lock:
+            ent = self._ent.get(key)
+            if ent is None:
+                return Outcome.ABSENT, None
+            outcome = self._check(ent, path)
+            if outcome is not Outcome.HIT:
+                self._invalidate(key)
+                return outcome, None
+            ent["at"] = time.time()            # LRU touch
+            result = ent["result"]
+        self._notify(key, True)
+        return Outcome.HIT, result
 
     def lookup(self, key, path=None):
         """Validated lookup. path=None means "TTL-validated key" (no file to
         stat). Returns the cached result on a hit, None on any miss."""
-        with self._lock:
-            ent = self._ent.get(key)
-            if ent is None:
-                return None
-            if path is None:
-                if time.time() - ent["born"] > self.ttl_s:
-                    self._ent.pop(key, None)
-                    return None
-            else:
-                try:
-                    st = os.stat(path)
-                except OSError:
-                    self._ent.pop(key, None)   # missing file: bypass
-                    return None
-                if (st.st_mtime_ns, st.st_size) != (ent["mtime_ns"], ent["size"]):
-                    self._ent.pop(key, None)   # changed on disk: invalidate
-                    return None
-            ent["at"] = time.time()            # LRU touch
-            result = ent["result"]
-        self._notify(key, True)
-        return result
+        return self.check(key, path)[1]
 
     def store(self, key, result, path=None):
         """Cache a successful read. mtime is stamped AFTER execution
         (make-style) so a file modified mid-read invalidates next time."""
-        ent = {"result": result, "born": time.time(), "at": time.time()}
+        now = time.time()
+        ent = {"result": result, "born": now, "at": now,
+               "mode": Validation.TTL if path is None else Validation.FILE,
+               "path": path, "mtime_ns": None, "size": None}
         if path is not None:
             st = os.stat(path)
             ent["mtime_ns"], ent["size"] = st.st_mtime_ns, st.st_size
@@ -124,7 +175,7 @@ class ResultCache:
             self._ent[key] = ent
             while len(self._ent) > self.cap:   # LRU-evict oldest last-access
                 oldest = min(self._ent, key=lambda k: self._ent[k]["at"])
-                del self._ent[oldest]
+                self._invalidate(oldest)
         self._notify(key, False)
 
     def _notify(self, key, hit):
