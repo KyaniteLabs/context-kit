@@ -21,13 +21,14 @@ Cache laws (keep all three or drop the cache):
     content. Context savings come from projection-time dedup of identical
     bytes (kit/diet.py), not from truncating here.
   - VALIDATE BEFORE EVERY HIT. Re-stat the file; mtime_ns or size mismatch
-    invalidates. Stamp mtime AFTER execution (make-style) so a file modified
-    during the read is caught next time.
+    invalidates. Compare metadata before and after execution; do not cache
+    a result if the file changed during the read.
 
 Zero dependencies. Stdlib only.
 """
 
 import ast
+import copy
 import enum
 import os
 import threading
@@ -38,7 +39,8 @@ import time
 def read_symbol(path, name, want_body=False):
     """Read one function/class from a .py file by name.
 
-    Returns "kind name  # path:line-line" + first docstring line, plus the
+    Returns a normalized declaration (parameters/defaults/annotations or
+    class bases), "# path:line-line", and the first docstring line, plus the
     full source when want_body=True. A miss lists candidate symbol names so
     the model can retry cheaply instead of falling back to read_file.
     Python files only — other types get an explicit error.
@@ -46,18 +48,25 @@ def read_symbol(path, name, want_body=False):
     if not path.endswith(".py"):
         return ("ERROR: read_symbol supports .py only "
                 "(use read_file for other types)")
-    tree = ast.parse(open(path, errors="replace").read())
+    with open(path, errors="replace") as stream:
+        source = stream.read()
+    tree = ast.parse(source)
     for node in ast.walk(tree):
-        hit = isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
-                                ast.ClassDef)) and node.name == name
-        if not hit:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
-        kind = "class" if isinstance(node, ast.ClassDef) else "def"
+        if node.name != name:
+            continue
+        header = copy.copy(node)
+        header.decorator_list = []
+        header.body = [ast.Pass()]
+        declaration = ast.unparse(header).splitlines()[0].removesuffix(":")
         doc = (ast.get_docstring(node) or "").split("\n")[0][:160]
         span = f"{path}:{node.lineno}-{node.end_lineno}"
-        sig = f"{kind} {name}  # {span}\n  {doc}" if doc else f"{kind} {name}  # {span}"
+        sig = f"{declaration}  # {span}"
+        if doc:
+            sig += f"\n  {doc}"
         if want_body:
-            src = open(path, errors="replace").read().splitlines()
+            src = source.splitlines()
             body = "\n".join(src[node.lineno - 1:node.end_lineno])[:24000]
             return sig + "\n" + body
         return sig + "\n  (pass body=true for the full source)"
@@ -161,15 +170,22 @@ class ResultCache:
         stat). Returns the cached result on a hit, None on any miss."""
         return self.check(key, path)[1]
 
-    def store(self, key, result, path=None):
+    def store(self, key, result, path=None, before=None):
         """Cache a successful read. mtime is stamped AFTER execution
-        (make-style) so a file modified mid-read invalidates next time."""
+        (make-style) so a file modified mid-read invalidates next time.
+        For file reads, pass the pre-read stat as `before` to skip caching
+        if the file changed during execution."""
         now = time.time()
         ent = {"result": result, "born": now, "at": now,
                "mode": Validation.TTL if path is None else Validation.FILE,
                "path": path, "mtime_ns": None, "size": None}
         if path is not None:
             st = os.stat(path)
+            if before is not None and (
+                    st.st_mtime_ns, st.st_ctime_ns, st.st_size, st.st_dev, st.st_ino) != (
+                    before.st_mtime_ns, before.st_ctime_ns, before.st_size,
+                    before.st_dev, before.st_ino):
+                return
             ent["mtime_ns"], ent["size"] = st.st_mtime_ns, st.st_size
         with self._lock:
             self._ent[key] = ent
@@ -201,10 +217,14 @@ def cached_read(cache, path, execute):
     result = cache.lookup(key, path=path)
     if result is not None:
         return result
+    try:
+        before = os.stat(path)
+    except OSError:
+        before = None
     result = execute(path)
-    if not result.startswith("ERROR"):
+    if before is not None and not result.startswith("ERROR"):
         try:
-            cache.store(key, result, path=path)
+            cache.store(key, result, path=path, before=before)
         except Exception:
             pass                # the cache must never break a tool call
     return result

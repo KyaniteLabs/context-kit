@@ -9,6 +9,7 @@ from unittest import mock
 
 from kit import diet
 from kit.diet import IllegalTransition, Stage, stage_of, transition
+from kit.diet import elide_to_budget, project
 
 
 def tr(body, **kw):
@@ -102,7 +103,9 @@ class Bugs(unittest.TestCase):
         # BUG (old code): eliding an already-ELIDED event overwrote the
         # 200-char preview with "(elided)".
         once = diet.elide_to_budget([tr("p" * 1000), tr("q" * 10)], 50)
-        twice = diet.elide_to_budget(once, 5)
+        # 17 forces a second pass over the ELIDED head without dropping it
+        # (the fix removed the old keep-8 floor, so tiny budgets now drop).
+        twice = diet.elide_to_budget(once, 17)
         self.assertEqual(twice[0]["_elided"], "p" * 200)
 
     def test_crashed_spill_write_is_not_trusted_forever(self):
@@ -211,6 +214,40 @@ class ProjectionModel(unittest.TestCase):
                 if t is not None:
                     self.assertIs(stage_of(out[t]), Stage.FULL, seed)
 
+
+class BudgetTests(unittest.TestCase):
+    def test_equal_width_boundary(self):
+        events = [{'kind': 'tool_result', 'content': f'{i:02d}' + 'x' * 998}
+                  for i in range(12)]
+        original = copy.deepcopy(events)
+        for fn in (elide_to_budget, project):
+            with self.subTest(fn=fn.__name__):
+                result = fn(events, budget_chars=1000)
+                self.assertLessEqual(sum(len(e.get('content', '')) for e in result), 1000)
+        self.assertEqual(events, original)
+
+    def test_small_budgets_drop_oldest_events(self):
+        for fn in (elide_to_budget, project):
+            for budget in (0, 1, 7, 8, 9, 99):
+                for kind in ('tool_result', 'user'):
+                    with self.subTest(fn=fn.__name__, budget=budget, kind=kind):
+                        events = [{'kind': kind, 'content': 'x' * 100} for _ in range(8)]
+                        result = fn(events, budget_chars=budget)
+                        self.assertLessEqual(sum(len(e['content']) for e in result), budget)
+
+    def test_expanding_dedup_stubs_still_fit(self):
+        events = [{'kind': 'tool_result', 'content': 'x'} for _ in range(2)]
+        result = project(events, budget_chars=2, min_body=0)
+        self.assertLessEqual(sum(len(e['content']) for e in result), 2)
+
+    def test_negative_budget_rejected(self):
+        for fn in (elide_to_budget, project):
+            with self.assertRaises(ValueError):
+                fn([], budget_chars=-1)
+
+    def test_fitting_events_preserved(self):
+        events = [{'kind': 'user', 'content': 'hello'}]
+        self.assertEqual(elide_to_budget(events, 5), events)
 
 if __name__ == "__main__":
     unittest.main()

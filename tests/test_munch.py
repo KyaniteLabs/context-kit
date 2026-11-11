@@ -8,6 +8,8 @@ from unittest import mock
 
 from kit import munch
 from kit.munch import Outcome, ResultCache, Validation
+from pathlib import Path
+from kit.munch import cached_read
 
 
 class Clock:
@@ -191,6 +193,41 @@ class CacheModel(Base):
                     self.assertEqual(ent["mode"] is Validation.FILE,
                                      ent["path"] is not None)
 
+
+class CacheTests(unittest.TestCase):
+    def test_change_during_read_is_not_cached(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'file.txt'
+            path.write_text('OLD CONTENT\n')
+            cache = ResultCache()
+            calls = []
+
+            def execute(name):
+                calls.append(name)
+                result = Path(name).read_text()
+                if len(calls) == 1:
+                    st = path.stat()
+                    path.write_text('NEW CONTENT\n')
+                    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))
+                return result
+
+            self.assertEqual(cached_read(cache, str(path), execute), 'OLD CONTENT\n')
+            self.assertEqual(cached_read(cache, str(path), execute), path.read_text())
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(cached_read(cache, str(path), execute), 'NEW CONTENT\n')
+            self.assertEqual(len(calls), 2)
+
+    def test_ordinary_change_invalidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'file.txt'
+            path.write_text('old')
+            cache = ResultCache()
+            execute = lambda name: Path(name).read_text()
+            self.assertEqual(cached_read(cache, str(path), execute), 'old')
+            st = path.stat()
+            path.write_text('new')
+            os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 2_000_000_000))
+            self.assertEqual(cached_read(cache, str(path), execute), 'new')
 
 if __name__ == "__main__":
     unittest.main()

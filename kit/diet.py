@@ -110,21 +110,25 @@ def transition(event, to, *, target=None):
 
 # ------------------------------------------------- pass 1: budget elision
 def elide_to_budget(events, budget_chars=300000):
-    """Fit the projection under a char budget. Oldest tool_result bodies are
-    elided first (view-only; a 200-char preview survives so the model knows
-    what it saw); if that is not enough, whole oldest events drop. Never
-    touches the log — returns a new list."""
+    """Return a copy with sum(len(event['content'])) <= budget_chars.
+    Oldest tool_result bodies are elided first (view-only; a 200-char
+    metadata preview survives); if needed, whole oldest events drop, even
+    down to an empty projection. Metadata is not counted in this budget.
+    Negative budgets raise ValueError. Never touches the log."""
+    if budget_chars < 0:
+        raise ValueError("budget_chars must be nonnegative")
     keep = list(events)
     total = sum(len(e.get("content", "")) for e in keep)
     i = 0
     while total > budget_chars and i < len(keep):
         if stage_of(keep[i]) is Stage.FULL and \
-                keep[i].get("kind") == "tool_result":
-            before = len(keep[i].get("content", ""))
+                keep[i].get("kind") == "tool_result" and \
+                len(keep[i].get("content", "")) > len(_ELIDED_TEXT):
+            before = len(keep[i].get("content", ""))   # only elide if it shrinks
             keep[i] = transition(keep[i], Stage.ELIDED)
             total += len(keep[i]["content"]) - before   # the stub counts too
         i += 1
-    while total > budget_chars and len(keep) > 8:
+    while total > budget_chars and keep:
         total -= len(keep[0].get("content", ""))
         keep.pop(0)
     return keep
@@ -177,11 +181,12 @@ def compact_old(events, keep_recent=40, long_session=300, min_body=400):
 
 
 def project(events, budget_chars=300000, **kw):
-    """The full diet, in order: budget elision -> dedup -> compaction.
-    Compose the passes differently if your workload says so; the invariant
-    is that the INPUT list is never mutated."""
-    return compact_old(
+    """Budget elision -> dedup -> compaction -> final budget enforcement.
+    The final pass handles stubs that expand bodies with custom min_body.
+    The INPUT list is never mutated."""
+    projected = compact_old(
         dedup_identical(elide_to_budget(events, budget_chars), **kw))
+    return elide_to_budget(projected, budget_chars)
 
 
 # --------------------------------------- progressive disclosure (spill)
