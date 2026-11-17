@@ -212,6 +212,10 @@ def cached_read(cache, path, execute):
     observe the cache except by the clock. Remember the cache laws in the
     module docstring: read-only tools only, full bytes back, never wrap a
     side-effecting tool.
+
+    `execute` may return str or bytes. A str result beginning with
+    "ERROR" is treated as error text and returned uncached; any other
+    str or bytes result is cached as-is.
     """
     key = f"read|{path}"
     result = cache.lookup(key, path=path)
@@ -222,7 +226,8 @@ def cached_read(cache, path, execute):
     except OSError:
         before = None
     result = execute(path)
-    if before is not None and not result.startswith("ERROR"):
+    if before is not None and not (isinstance(result, str)
+                                    and result.startswith("ERROR")):
         try:
             cache.store(key, result, path=path, before=before)
         except Exception:
