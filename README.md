@@ -130,7 +130,11 @@ believing your own numbers.
 > prompt cache mid-session). The battery method in `kit/instruments/`
 > (`tpt_battery.py` + `tpt_style.py`) is how to verify this per-regime on
 > your own rig before adopting. Source: re-baseline experiment log
-> (REBASELINE-RESULTS.md + VALIDITY-MAP.md, 2026-08-15/16 night).
+> (2026-08-15/16 night). The raw log lives in the private experiment
+> archive; the published distillation of that same re-baseline — the
+> n=15/arm interleaved harness-lane numbers quoted above — is the
+> [Re-baseline update (2026-08-16)](https://github.com/KyaniteLabs/qwen38-27b-strix-halo/blob/main/docs/findings.md#re-baseline-update-2026-08-16)
+> section of `qwen38-27b-strix-halo/docs/findings.md`.
 
 ## How do I stop my agent re-reading files?
 
