@@ -105,6 +105,59 @@ class Bugs(Base):
         c.lookup("k")
         self.assertEqual(got, [("k", False), ("k", True)])
 
+    def test_documented_hook_signature_receives_events(self):
+        # v0.1.0 documented a (key, hit, age) sink but called hook(key, hit).
+        # A hook written to the documented two-argument signature gets every
+        # event: one per store, one per served hit.
+        got = []
+
+        def hook(key, hit):
+            got.append((key, hit))
+
+        c = ResultCache(cap=5, ttl_s=300)
+        c.stat_hook = hook
+        c.store("s", "x")
+        c.lookup("s")
+        self.assertEqual(got, [("s", False), ("s", True)])
+        self.assertEqual(c.stat_hook_errors, 0)
+
+    def test_raising_hook_is_counted_and_reported_once(self):
+        # BUG (old code): a hook raising on every call was swallowed with
+        # `except Exception: pass` — zero events and no trace, which reads
+        # exactly like "the cache never hits".
+        c = ResultCache()
+        c.stat_hook = lambda key, hit, age: None       # wrong arity
+        with self.assertLogs("kit.munch", level="WARNING") as logs:
+            c.store("k", "v")
+            self.assertEqual(c.lookup("k"), "v")       # the call is unharmed
+            c.store("k2", "v2")
+        self.assertEqual(c.stat_hook_errors, 3)
+        self.assertEqual(len(logs.records), 1)         # reported once
+        self.assertIn("TypeError", logs.output[0])
+        self.assertIn("hook(key, hit)", logs.output[0])
+        with self.assertLogs("kit.munch", level="WARNING") as again:
+            c.stat_hook = lambda key: None             # a different bad hook
+            c.store("k3", "v3")
+        self.assertEqual(len(again.records), 1)        # reported once more
+        self.assertEqual(c.stat_hook_errors, 4)
+
+    def test_raising_hook_never_breaks_a_tool_call(self):
+        path = self.file()
+        c = ResultCache()
+        c.stat_hook = mock.Mock(side_effect=RuntimeError("sink down"))
+        calls = []
+
+        def execute(p):
+            calls.append(p)
+            return "hello"
+
+        with self.assertLogs("kit.munch", level="WARNING") as logs:
+            out = [munch.cached_read(c, path, execute) for _ in range(2)]
+        self.assertEqual(out, ["hello", "hello"])
+        self.assertEqual(len(calls), 1)                # second read was served
+        self.assertEqual(c.stat_hook_errors, 2)
+        self.assertEqual(len(logs.records), 1)
+
 
 class Behaviour(Base):
     def test_lru_eviction(self):
