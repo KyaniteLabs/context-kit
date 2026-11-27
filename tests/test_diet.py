@@ -341,6 +341,16 @@ class ProjectKnobRouting(unittest.TestCase):
         self.assertEqual([stage_of(e) for e in out],
                          [Stage.COMPACTED] * 4 + [Stage.FULL] * 2)
 
+    def test_pass_specific_dedup_knob_wins_over_shared_min_body(self):
+        events = self.log(6)
+        events[5] = dict(events[0], id=5)    # repeat in the recent window
+        out = diet.project(events, long_session=2, keep_recent=2,
+                           min_body=100, dedup_min_body=400)
+        # dedup: 400 (the specific value wins) -> the repeat stays FULL
+        # compaction: 100 (the shared value) -> the old bodies stub
+        self.assertEqual([stage_of(e) for e in out],
+                         [Stage.COMPACTED] * 4 + [Stage.FULL] * 2)
+
     def test_unknown_kwarg_is_reported_at_project(self):
         with self.assertRaises(TypeError) as cm:
             diet.project([], keep_recnt=2)
@@ -361,6 +371,24 @@ class ProjectKnobRouting(unittest.TestCase):
         out = diet.project(self.log(302, body=450), keep_recent=2)
         self.assertEqual([stage_of(e) for e in out],
                          [Stage.COMPACTED] * 300 + [Stage.FULL] * 2)
+
+    def test_zero_is_a_forwarded_value_not_unset(self):
+        # 0 means "no threshold": it must reach the pass as 0, not be
+        # mistaken for "not given" (which would restore that pass default).
+        out = diet.project(self.log(6, body=450),
+                           long_session=0, keep_recent=0)
+        self.assertEqual([stage_of(e) for e in out], [Stage.COMPACTED] * 6)
+        out = diet.project(self.log(302), compact_min_body=0)
+        self.assertEqual([stage_of(e) for e in out],
+                         [Stage.COMPACTED] * 262 + [Stage.FULL] * 40)
+        repeat = self.log(1)
+        repeat.append(dict(repeat[0], id=1))
+        for knob in ({"min_body": 0}, {"dedup_min_body": 0}):
+            with self.subTest(knob=knob):
+                out = diet.project(repeat, **knob)
+                # under dedup's own default (200) this repeat stays FULL
+                self.assertEqual([stage_of(e) for e in out],
+                                 [Stage.FULL, Stage.DEDUPED])
 
     def test_knobs_never_mutate_the_input(self):
         events = self.log(8)

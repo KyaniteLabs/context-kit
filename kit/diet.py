@@ -195,9 +195,13 @@ def project(events, budget_chars=300000, *, min_body=None,
       long_session     -> compact_old      (its own default: 300)
     A knob left as None is not forwarded, so that pass keeps its own
     default. min_body is the shared threshold: one value sets BOTH
-    dedup_min_body and compact_min_body, so it loosens or tightens both
-    passes alike. A pass-specific knob wins over min_body when both are
-    given."""
+    dedup_min_body and compact_min_body. Each pass still compares it in
+    its own way: dedup stubs a repeat of len >= min_body, compaction
+    stubs an old body of len > min_body. A pass-specific knob wins over
+    min_body when both are given.
+    Caution: a compaction stub is about 40 chars, so a shared min_body
+    below that makes tiny old bodies grow when stubbed (the final
+    budget pass still caps the view)."""
     dedup_kw, compact_kw = {}, {}
     if min_body is not None:
         dedup_kw["min_body"] = compact_kw["min_body"] = min_body
