@@ -47,13 +47,27 @@ def read_symbol(path, name, want_body=False):
     full source when want_body=True. A miss lists candidate symbol names so
     the model can retry cheaply instead of falling back to read_file.
     Python files only — other types get an explicit error.
+    Every miss is an "ERROR: ..." string, never an exception: a file that
+    cannot be read, or one that does not parse, which gets the PATTERNS.md 7
+    verdict "SYNTAX BROKEN: path:line: ... — FIX BEFORE ANSWERING".
     """
     if not path.endswith(".py"):
         return ("ERROR: read_symbol supports .py only "
                 "(use read_file for other types)")
-    with open(path, errors="replace") as stream:
-        source = stream.read()
-    tree = ast.parse(source)
+    try:
+        with open(path, errors="replace") as stream:
+            source = stream.read()
+    except (OSError, ValueError) as exc:       # ValueError: NUL in the path
+        why = exc.strerror if isinstance(exc, OSError) else exc
+        return f"ERROR: cannot read {path}: {why}"
+    try:
+        tree = ast.parse(source, filename=path)
+    except (SyntaxError, ValueError) as exc:
+        # Python 3.10 raises ValueError for a NUL byte; 3.11+ a SyntaxError.
+        line = getattr(exc, "lineno", None)
+        where = f"{path}:{line}" if line else path
+        return (f"ERROR: SYNTAX BROKEN: {where}: "
+                f"{getattr(exc, 'msg', None) or exc} — FIX BEFORE ANSWERING")
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue

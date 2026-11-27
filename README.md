@@ -28,6 +28,10 @@ python3 kit/instruments/tpt_style.py --help
 Help and imports do not contact a server; running an instrument normally does.
 `read_symbol(path, name, want_body=False)` includes a normalized declaration
 (parameters, defaults, annotations; class bases), docstring and line span.
+Every miss returns an `ERROR: ...` string instead of raising: a missing or
+unreadable file, a file that does not parse (the `SYNTAX BROKEN: ... — FIX
+BEFORE ANSWERING` verdict from docs/PATTERNS.md 7), or a name that is not in
+the file (with candidate names to retry).
 `elide_to_budget` and `project` bound the sum of returned **content** character
 lengths, not serialized event metadata or tokens; they can drop all events for
 small budgets. Negative budgets raise `ValueError`.
