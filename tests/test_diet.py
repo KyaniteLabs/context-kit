@@ -183,7 +183,19 @@ class ProjectionModel(unittest.TestCase):
                     view = diet.compact_old(view, keep_recent=rng.randint(
                         0, 60), long_session=rng.randint(0, 320))
                 else:
-                    view = diet.project(view, rng.randint(1000, 400000))
+                    # route random pass knobs through the one public entry
+                    # point: the same invariants must hold as with defaults
+                    knobs = {}
+                    if rng.random() < 0.5:
+                        knobs["long_session"] = rng.randint(0, 320)
+                    if rng.random() < 0.5:
+                        knobs["keep_recent"] = rng.randint(0, 60)
+                    if rng.random() < 0.5:
+                        knobs[rng.choice(["min_body", "dedup_min_body",
+                                          "compact_min_body"])] = \
+                            rng.choice([1, 100, 200, 400])
+                    view = diet.project(view, rng.randint(1000, 400000),
+                                        **knobs)
                 self.assertEqual(log, snapshot, seed)   # log untouched
                 for e in view:
                     st = stage_of(e)
@@ -248,6 +260,155 @@ class BudgetTests(unittest.TestCase):
     def test_fitting_events_preserved(self):
         events = [{'kind': 'user', 'content': 'hello'}]
         self.assertEqual(elide_to_budget(events, 5), events)
+
+
+class ProjectKnobRouting(unittest.TestCase):
+    """project() routes each knob to the pass it names. BUG (old code):
+    **kw went to dedup_identical ONLY, so compact_old's knobs raised a
+    TypeError naming the wrong function, and a bare min_body silently
+    tuned dedup while compaction kept its own, different default."""
+
+    # 150 chars: under dedup's default min_body (200) and compaction's
+    # (400), so neither pass fires unless a test lowers THAT pass's knob.
+    BODY = 150
+
+    @staticmethod
+    def log(n, body=BODY):
+        """n distinct tool_results of `body` chars (distinct -> no dedup)."""
+        return [tr(f"{i:04d}".ljust(body, "a"), id=i) for i in range(n)]
+
+    def test_card_repro_keep_recent_does_not_raise(self):
+        events = [tr("B" * 600, seq=i) for i in range(6)]
+        out = diet.project(events, keep_recent=2)        # was TypeError
+        self.assertEqual([stage_of(e) for e in out],
+                         [Stage.FULL] + [Stage.DEDUPED] * 5)
+
+    def test_keep_recent_and_long_session_reach_compaction(self):
+        events = self.log(8, body=450)    # over both default thresholds
+        out = diet.project(events, long_session=4, keep_recent=3)
+        self.assertEqual([stage_of(e) for e in out],
+                         [Stage.COMPACTED] * 5 + [Stage.FULL] * 3)
+
+    def test_compact_min_body_reaches_compaction_only(self):
+        events = self.log(6)
+        events[5] = dict(events[0], id=5)    # a repeat in the recent window
+        out = diet.project(events, long_session=2, keep_recent=2,
+                           compact_min_body=100)
+        # compaction used 100: every old body (150) stubbed
+        self.assertEqual([stage_of(e) for e in out[:4]],
+                         [Stage.COMPACTED] * 4)
+        # dedup kept ITS default 200: the repeat is not stubbed (so event 0
+        # is not pinned by a recent dedup stub either)
+        self.assertEqual([stage_of(e) for e in out[4:]], [Stage.FULL] * 2)
+
+    def test_dedup_min_body_reaches_dedup_only(self):
+        events = self.log(6)
+        events[1] = dict(events[0], id=1)    # repeat outside the recent window
+        out = diet.project(events, long_session=2, keep_recent=2,
+                           dedup_min_body=100)
+        # dedup used 100: the 150-char repeat is stubbed ...
+        self.assertIs(stage_of(out[1]), Stage.DEDUPED)
+        self.assertEqual(diet.dedup_target(out[1]), 0)
+        # ... compaction kept ITS default 400: the old 150-char bodies
+        # (the stub's target included) stay full
+        self.assertEqual([stage_of(e) for e in out],
+                         [Stage.FULL, Stage.DEDUPED] + [Stage.FULL] * 4)
+
+    def test_shared_min_body_sets_both_passes(self):
+        # The card's silent repro: ONLY a bare min_body, nothing that raises.
+        events = self.log(302)                 # > long_session (300)
+        events.append(dict(events[0], id=302))  # a repeat in the recent window
+        out = diet.project(events, min_body=10)
+        # dedup was tuned to 10: the 150-char repeat is stubbed (old code
+        # did this too) ...
+        self.assertIs(stage_of(out[302]), Stage.DEDUPED)
+        self.assertEqual(diet.dedup_target(out[302]), 0)
+        # ... and compaction was tuned to 10 as well. Old code accepted the
+        # call and silently left events 1-262 FULL on compact_old's own 400.
+        self.assertEqual([stage_of(e) for e in out[1:263]],
+                         [Stage.COMPACTED] * 262)
+        self.assertEqual(out[0]["content"], events[0]["content"])  # pinned
+        self.assertEqual([stage_of(e) for e in out[263:302]],
+                         [Stage.FULL] * 39)
+
+    def test_pass_specific_knob_wins_over_shared_min_body(self):
+        events = self.log(6)
+        events[5] = dict(events[0], id=5)
+        out = diet.project(events, long_session=2, keep_recent=2,
+                           min_body=400, compact_min_body=100)
+        # dedup: 400 (the shared value) -> repeat stays FULL
+        # compaction: 100 (the specific value wins) -> old bodies stub
+        self.assertEqual([stage_of(e) for e in out],
+                         [Stage.COMPACTED] * 4 + [Stage.FULL] * 2)
+
+    def test_pass_specific_dedup_knob_wins_over_shared_min_body(self):
+        events = self.log(6)
+        events[5] = dict(events[0], id=5)    # repeat in the recent window
+        out = diet.project(events, long_session=2, keep_recent=2,
+                           min_body=100, dedup_min_body=400)
+        # dedup: 400 (the specific value wins) -> the repeat stays FULL
+        # compaction: 100 (the shared value) -> the old bodies stub
+        self.assertEqual([stage_of(e) for e in out],
+                         [Stage.COMPACTED] * 4 + [Stage.FULL] * 2)
+
+    def test_unknown_kwarg_is_reported_at_project(self):
+        with self.assertRaises(TypeError) as cm:
+            diet.project([], keep_recnt=2)
+        self.assertIn("project", str(cm.exception))
+        self.assertNotIn("dedup_identical", str(cm.exception))
+
+    def test_unset_knobs_keep_each_pass_own_default(self):
+        # project() carries no defaults of its own: a knob it is not given
+        # is simply not forwarded, so that pass keeps its own default.
+        # 150-char bodies sit under BOTH pass defaults (dedup 200, compact
+        # 400): with only keep_recent set, neither pass fires.
+        small = self.log(302)
+        small.append(dict(small[0], id=302))
+        out = diet.project(small, keep_recent=2)
+        self.assertEqual([stage_of(e) for e in out], [Stage.FULL] * 303)
+        # The same call on 450-char bodies (over both defaults) proves
+        # keep_recent=2 itself reached compaction: only the 2 newest stay.
+        out = diet.project(self.log(302, body=450), keep_recent=2)
+        self.assertEqual([stage_of(e) for e in out],
+                         [Stage.COMPACTED] * 300 + [Stage.FULL] * 2)
+
+    def test_zero_is_a_forwarded_value_not_unset(self):
+        # 0 means "no threshold": it must reach the pass as 0, not be
+        # mistaken for "not given" (which would restore that pass default).
+        out = diet.project(self.log(6, body=450),
+                           long_session=0, keep_recent=0)
+        self.assertEqual([stage_of(e) for e in out], [Stage.COMPACTED] * 6)
+        out = diet.project(self.log(302), compact_min_body=0)
+        self.assertEqual([stage_of(e) for e in out],
+                         [Stage.COMPACTED] * 262 + [Stage.FULL] * 40)
+        repeat = self.log(1)
+        repeat.append(dict(repeat[0], id=1))
+        for knob in ({"min_body": 0}, {"dedup_min_body": 0}):
+            with self.subTest(knob=knob):
+                out = diet.project(repeat, **knob)
+                # under dedup's own default (200) this repeat stays FULL
+                self.assertEqual([stage_of(e) for e in out],
+                                 [Stage.FULL, Stage.DEDUPED])
+
+    def test_knobs_never_mutate_the_input(self):
+        events = self.log(8)
+        events[7] = dict(events[0], id=7)
+        events.insert(4, {"kind": "user", "content": "hi", "id": 100})
+        snapshot = copy.deepcopy(events)
+        out = diet.project(events, long_session=3, keep_recent=2, min_body=100)
+        # the knobs took effect (not a vacuous no-op) ...
+        self.assertIs(stage_of(out[8]), Stage.DEDUPED)     # the repeat, id 7
+        self.assertEqual(sum(stage_of(e) is Stage.COMPACTED for e in out), 5)
+        # ... without touching the caller's list or its event dicts
+        self.assertIsNot(out, events)
+        self.assertEqual(events, snapshot)
+        self.assertEqual([e["id"] for e in out], [e["id"] for e in events])
+        for orig, proj in zip(events, out):
+            if stage_of(proj) is Stage.FULL:
+                self.assertEqual(proj, orig)
+            else:
+                self.assertIsNot(proj, orig)
+
 
 if __name__ == "__main__":
     unittest.main()
