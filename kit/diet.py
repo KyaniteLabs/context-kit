@@ -180,12 +180,38 @@ def compact_old(events, keep_recent=40, long_session=300, min_body=400):
     return keep
 
 
-def project(events, budget_chars=300000, **kw):
+def project(events, budget_chars=300000, *, min_body=None,
+            dedup_min_body=None, compact_min_body=None,
+            keep_recent=None, long_session=None):
     """Budget elision -> dedup -> compaction -> final budget enforcement.
     The final pass handles stubs that expand bodies with custom min_body.
-    The INPUT list is never mutated."""
+    The INPUT list is never mutated.
+
+    Each knob is routed to the pass it belongs to; nothing is forwarded
+    blindly, and an unknown name raises TypeError here at project():
+      dedup_min_body   -> dedup_identical  (its own default: 200)
+      compact_min_body -> compact_old      (its own default: 400)
+      keep_recent      -> compact_old      (its own default: 40)
+      long_session     -> compact_old      (its own default: 300)
+    A knob left as None is not forwarded, so that pass keeps its own
+    default. min_body is the shared threshold: one value sets BOTH
+    dedup_min_body and compact_min_body, so it loosens or tightens both
+    passes alike. A pass-specific knob wins over min_body when both are
+    given."""
+    dedup_kw, compact_kw = {}, {}
+    if min_body is not None:
+        dedup_kw["min_body"] = compact_kw["min_body"] = min_body
+    if dedup_min_body is not None:
+        dedup_kw["min_body"] = dedup_min_body
+    if compact_min_body is not None:
+        compact_kw["min_body"] = compact_min_body
+    if keep_recent is not None:
+        compact_kw["keep_recent"] = keep_recent
+    if long_session is not None:
+        compact_kw["long_session"] = long_session
     projected = compact_old(
-        dedup_identical(elide_to_budget(events, budget_chars), **kw))
+        dedup_identical(elide_to_budget(events, budget_chars), **dedup_kw),
+        **compact_kw)
     return elide_to_budget(projected, budget_chars)
 
 
