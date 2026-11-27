@@ -30,9 +30,12 @@ Zero dependencies. Stdlib only.
 import ast
 import copy
 import enum
+import logging
 import os
 import threading
 import time
+
+_log = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------- munch reads
@@ -117,7 +120,9 @@ class ResultCache:
 
     Set `stat_hook` to a (key, hit) sink for cache telemetry (hit is a
     bool) — it must never raise into a tool call (wrapped here, but keep
-    sinks dull).
+    sinks dull). A hook that raises is skipped: each failure is counted
+    in `stat_hook_errors` and the first failure per hook is logged as a
+    warning, so a mismatched sink is visible rather than silent.
     """
 
     def __init__(self, cap=50, ttl_s=300):
@@ -127,6 +132,8 @@ class ResultCache:
         self._ent = {}
         self._lock = threading.Lock()
         self.stat_hook = None
+        self.stat_hook_errors = 0       # stat_hook calls that raised
+        self._stat_hook_reported = None  # hook whose first failure was logged
 
     def _check(self, ent, path):
         """Classify a present entry. Pure: no state change."""
@@ -195,12 +202,29 @@ class ResultCache:
         self._notify(key, False)
 
     def _notify(self, key, hit):
+        """Report one event to `stat_hook`. A failure there never reaches
+        the tool call (PATTERNS.md 10: swallowed and logged): it is
+        counted, the first failure per hook is logged, and the call goes
+        on."""
         hook = self.stat_hook
         if hook:
             try:
                 hook(key, hit)
-            except Exception:
-                pass            # telemetry must never break a tool call
+            except Exception as exc:
+                with self._lock:
+                    self.stat_hook_errors += 1
+                    first = self._stat_hook_reported is not hook
+                    self._stat_hook_reported = hook
+                if first:
+                    try:
+                        _log.warning(
+                            "ResultCache.stat_hook raised and was skipped; "
+                            "the hook contract is hook(key, hit). Logged "
+                            "once per hook; every failure is counted in "
+                            "ResultCache.stat_hook_errors. Error: %s: %s",
+                            type(exc).__name__, exc)
+                    except Exception:
+                        pass    # reporting is telemetry too
 
 
 # ------------------------------------------------------------ integration
